@@ -1,0 +1,65 @@
+{
+  "filebeat" : {
+    "order" : 1,
+    "index_patterns" : [
+      "filebeat-*",
+      "vector-*"
+    ],
+    "settings" : {
+      "index" : {
+        "mapping" : {
+          "total_fields" : {
+            "limit" : "5000"
+          }
+        },
+        "opendistro" : {
+          "index_state_management" : {
+            "policy_id" : "vector_workflow"
+          }
+        },
+        "search" : {
+          "slowlog" : {
+            "level" : "INFO",
+            "threshold" : {
+              "fetch" : {
+                "warn" : "1s",
+                "trace" : "200ms",
+                "debug" : "500ms",
+                "info" : "800ms"
+              },
+              "query" : {
+                "warn" : "10s",
+                "trace" : "500ms",
+                "debug" : "2s",
+                "info" : "5s"
+              }
+            }
+          }
+        },
+        "refresh_interval" : "5s",
+        "indexing" : {
+          "slowlog" : {
+            "level" : "INFO",
+            "threshold" : {
+              "index" : {
+                "warn" : "10s",
+                "trace" : "500ms",
+                "debug" : "2s",
+                "info" : "5s"
+              }
+            },
+            "source" : "500"
+          }
+        },
+        "query" : {
+          "default_field" : [
+            "message"
+          ]
+        },
+        "number_of_replicas" : "0"
+      }
+    },
+    "mappings" : { },
+    "aliases" : { }
+  }
+}

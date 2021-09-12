@@ -1,0 +1,119 @@
+# Homelab logging setup.
+# Trying out opensearch 1.0 and got tired of trying to make filebeat work so giving vector.dev a try.
+# Below is me learning a thing or 2 about transforms, filtering, parsing es logs into useful logs as they are ingested to opensearch.
+# now I can scale this further and build some visualizations in opensearch-dashboards.
+
+#tcp input source to play with.
+
+[sources.in]
+  mode = "tcp"
+  type = "socket"
+  address = "0.0.0.0:9000"
+  max_length = 102400
+  path = "/tmp/vector.socket"
+  shutdown_timeout_secs = 30
+  
+#docker logs is where the logging happens
+[sources.dockerlogs]
+  type = "docker_logs"
+
+# didnt want to deal with it. docker and kube labels are a mess.
+[transforms.docker_clean]
+  type = "remove_fields"
+  inputs = ["dockerlogs"]
+  fields = ["label"]
+  
+#all the docker container logs except opensearch node logs.
+[transforms.other_logs]
+  type = "filter"
+  inputs = ["docker_clean"]
+  condition = '!includes(["opensearch-node1", "opensearch-node2"], .container_name)'
+
+# Only the opensearch node logs es app logs and slowlogs combined
+[transforms.es_logs]
+  type = "filter"
+  inputs = ["docker_clean"]
+  condition = 'includes(["opensearch-node1", "opensearch-node2"], .container_name)'
+ 
+ # parse out some common stuff. Main inspriation for this incrementl filter pattern from 
+ # https://sematext.com/blog/grok-elasticsearch-logs-with-logstash/ and vector examples.
+[transforms.parsed_es]
+  inputs = ["es_logs"]
+  type = "regex_parser"
+  field = "message"
+  regex = '\[(?P<es_timestamp>.*?)\]\[(?P<es_severity>.*?)\]\[(?P<es_source>[^\s]+)\s*\]\s\[(?P<es_node>.*?)\]\s(?P<message>.*)'
+
+# Now that we have a few es fields parsed out we can now filter on them
+# Filter only query slowlogs because they are slightly different from index slowlogs so if we want to parse them further lets isolate them first.
+[transforms.es_query_slowlogs]
+  inputs    = ["parsed_es"]
+  type      = "filter"
+  condition = 'includes(["i.s.s.query", "i.s.s.fetch"], .es_source)'
+
+# similarly filter index slowlogs into their own stream as well
+[transforms.es_index_slowlogs]
+  inputs    = ["parsed_es"]
+  type      = "filter"
+  condition = 'includes(["i.s.s.index"], .es_source)'
+  
+# and the rest of the es logs we'll call applogs
+[transforms.es_applogs]
+  inputs    = ["parsed_es"]
+  type      = "filter"
+  condition = '!includes(["i.s.s.index","i.s.s.query", "i.s.s.fetch"], .es_source)'
+
+# this is the rest of the parsing for query slowlogs
+[transforms.parsed_es_query_slowlogs]
+  inputs    = ["es_query_slowlogs"]
+  type      = "regex_parser"
+  field     = "message"
+  regex = '\[(?P<es_slowlog_index>.*?)\]\[\d+\] took\[(?P<es_slowlog_took>.*?)\], took_millis\[(?P<es_slowlog_took_millis>.*?)\], total_hits\[(?P<es_slowlog_total_hits>.*?)\], types\[(?P<es_slowlog_types>.*?)\], stats\[(?P<es_slowlog_stats>.*?)\], search_type\[(?P<es_slowlog_search_type>.*?)], total_shards\[(?P<es_slowlog_total_shards>\d+)\], source\[(?P<es_slowlog_source>.*?)\], id\[(?P<es_slowlog_id>.*)\],'
+
+# this is the rest of the parsing for index slowlogs
+[transforms.parsed_es_index_slowlogs]
+  inputs    = ["es_index_slowlogs"]
+  type      = "regex_parser"
+  field     = "message"
+  regex = '\[(?P<es_slowlog_index>.*?)\] took\[(?P<es_slowlog_took>.*?)\], took_millis\[(?P<es_slowlog_took_millis>.*?)\], type\[(?P<es_slowlog_type>.*?)\], id\[(?P<es_id>.*?)\], routing\[(?P<es_routing>.*?)\], source\[(?P<es_slowlog_source>.*?)\]'
+
+
+# and the rest here is just writing direct to opensearch cluster.
+[sinks.out]
+  inputs = ["in"]
+  type = "console"
+
+[sinks.osout]
+  type = "elasticsearch"
+  inputs = ["es_applogs", "parsed_es_index_slowlogs", "parsed_es_query_slowlogs", "other_logs"]
+  endpoint = "https://opensearch-node1:9200"
+  index = "vector-%F"
+  mode = "normal"
+  compression = "none"
+
+# for debugging various input points
+#[sinks.osstdout]
+#  type = "file"
+#  path = "/tmp/vector-%Y-%m-%d.log"
+#  inputs = ["es_applogs"]
+
+[sinks.osstdout.encoding]
+  codec = "ndjson"
+  timestamp_format = "rfc3339"
+
+[sinks.osout.auth]
+  user = "SUPER_SECRET"
+  password = "ULTRA_COMPLEX_PASSWORD_HERE"
+  strategy = "basic"
+
+[sinks.osout.tls]
+  verify_hostname = false
+  ca_file = "/ssl/root-ca.pem"
+  crt_file = "/ssl/kirk.pem"
+  key_file = "/ssl/kirk-key.pem"
+
+[sinks.osout.encoding]
+  timestamp_format = "rfc3339"
+
+[sinks.out.encoding]
+  timestamp_format = "rfc3339"
+  codec = "json"

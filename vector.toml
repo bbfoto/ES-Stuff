@@ -68,6 +68,10 @@
   type      = "regex_parser"
   field     = "message"
   regex = '\[(?P<es_slowlog_index>.*?)\]\[\d+\] took\[(?P<es_slowlog_took>.*?)\], took_millis\[(?P<es_slowlog_took_millis>.*?)\], total_hits\[(?P<es_slowlog_total_hits>.*?)\], types\[(?P<es_slowlog_types>.*?)\], stats\[(?P<es_slowlog_stats>.*?)\], search_type\[(?P<es_slowlog_search_type>.*?)], total_shards\[(?P<es_slowlog_total_shards>\d+)\], source\[(?P<es_slowlog_source>.*?)\], id\[(?P<es_slowlog_id>.*)\],'
+[transforms.parsed_es_query_slowlogs.types]
+  es_slowlog_took_millis = "int"
+  es_slowlog_total_hits = "int"
+  es_slowlog_total_shards = "int"
 
 # this is the rest of the parsing for index slowlogs
 [transforms.parsed_es_index_slowlogs]
@@ -75,7 +79,8 @@
   type      = "regex_parser"
   field     = "message"
   regex = '\[(?P<es_slowlog_index>.*?)\] took\[(?P<es_slowlog_took>.*?)\], took_millis\[(?P<es_slowlog_took_millis>.*?)\], type\[(?P<es_slowlog_type>.*?)\], id\[(?P<es_id>.*?)\], routing\[(?P<es_routing>.*?)\], source\[(?P<es_slowlog_source>.*?)\]'
-
+[transforms.parsed_es_index_slowlogs.types]
+  es_slowlog_took_millis = "int"
 
 # and the rest here is just writing direct to opensearch cluster.
 [sinks.out]
